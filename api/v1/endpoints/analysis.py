@@ -29,7 +29,9 @@ from api.deps import get_config_dep
 from api.v1.schemas.analysis import (
     AnalyzeRequest,
     AnalysisResultResponse,
+    BatchAnalysisResultResponse,
     TaskAccepted,
+    BatchTaskAccepted,
     TaskStatus,
     TaskInfo,
     TaskListResponse,
@@ -61,7 +63,7 @@ router = APIRouter()
 
 @router.post(
     "/analyze",
-    response_model=AnalysisResultResponse,
+    response_model=Union[AnalysisResultResponse, BatchAnalysisResultResponse],
     responses={
         200: {"description": "分析完成（同步模式）", "model": AnalysisResultResponse},
         202: {"description": "分析任务已接受（异步模式）", "model": TaskAccepted},
@@ -75,7 +77,7 @@ router = APIRouter()
 def trigger_analysis(
         request: AnalyzeRequest,
         config: Config = Depends(get_config_dep)
-) -> Union[AnalysisResultResponse, JSONResponse]:
+) -> Union[AnalysisResultResponse, BatchAnalysisResultResponse, JSONResponse]:
     """
     触发股票分析
     
@@ -121,14 +123,14 @@ def trigger_analysis(
 
     # 异步模式：使用任务队列
     if request.async_mode:
-        return _handle_async_analysis(stock_code, request)
+        return _handle_async_analysis(stock_codes, request)
 
     # 同步模式：直接执行分析
-    return _handle_sync_analysis(stock_code, request)
+    return _handle_sync_analysis(stock_codes, request)
 
 
 def _handle_async_analysis(
-    stock_code: str,
+    stock_codes: list[str],
     request: AnalyzeRequest
 ) -> JSONResponse:
     """
@@ -141,18 +143,42 @@ def _handle_async_analysis(
     
     try:
         # 提交任务（如果重复会抛出 DuplicateTaskError）
-        task_info = task_queue.submit_task(
-            stock_code=stock_code,
-            stock_name=None,  # 名称在分析过程中获取
-            report_type=request.report_type,
-            force_refresh=request.force_refresh,
-        )
-        
-        # 返回 202 Accepted
-        task_accepted = TaskAccepted(
-            task_id=task_info.task_id,
+        duplicate_codes = [
+            code for code in stock_codes
+            if task_queue.is_analyzing(code)
+        ]
+        if duplicate_codes:
+            stock_code = duplicate_codes[0]
+            existing_task_id = task_queue.get_analyzing_task_id(stock_code) or ""
+            raise DuplicateTaskError(stock_code, existing_task_id)
+
+        task_infos = [
+            task_queue.submit_task(
+                stock_code=stock_code,
+                stock_name=None,  # 名称在分析过程中获取
+                report_type=request.report_type,
+                force_refresh=request.force_refresh,
+            )
+            for stock_code in stock_codes
+        ]
+
+        if len(task_infos) == 1:
+            task_info = task_infos[0]
+            task_accepted = TaskAccepted(
+                task_id=task_info.task_id,
+                status="pending",
+                message=f"分析任务已加入队列: {task_info.stock_code}"
+            )
+            return JSONResponse(
+                status_code=202,
+                content=task_accepted.model_dump()
+            )
+
+        task_accepted = BatchTaskAccepted(
+            task_ids=[task.task_id for task in task_infos],
+            stock_codes=[task.stock_code for task in task_infos],
             status="pending",
-            message=f"分析任务已加入队列: {stock_code}"
+            message=f"{len(task_infos)} 个分析任务已加入队列"
         )
         return JSONResponse(
             status_code=202,
@@ -174,9 +200,9 @@ def _handle_async_analysis(
 
 
 def _handle_sync_analysis(
-    stock_code: str,
+    stock_codes: list[str],
     request: AnalyzeRequest
-) -> AnalysisResultResponse:
+) -> Union[AnalysisResultResponse, BatchAnalysisResultResponse]:
     """
     处理同步分析请求
     
@@ -189,34 +215,68 @@ def _handle_sync_analysis(
     
     try:
         service = AnalysisService()
-        result = service.analyze_stock(
-            stock_code=stock_code,
+        if len(stock_codes) == 1:
+            stock_code = stock_codes[0]
+            result = service.analyze_stock(
+                stock_code=stock_code,
+                report_type=request.report_type,
+                force_refresh=request.force_refresh,
+                query_id=query_id
+            )
+
+            if result is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "analysis_failed",
+                        "message": f"分析股票 {stock_code} 失败"
+                    }
+                )
+
+            # 构建报告结构
+            report_data = result.get("report", {})
+            report = _build_analysis_report(
+                report_data, query_id, stock_code, result.get("stock_name")
+            )
+
+            return AnalysisResultResponse(
+                query_id=query_id,
+                stock_code=result.get("stock_code", stock_code),
+                stock_name=result.get("stock_name"),
+                report=report.model_dump() if report else None,
+                created_at=datetime.now().isoformat()
+            )
+
+        batch_result = service.analyze_stocks(
+            stock_codes=stock_codes,
             report_type=request.report_type,
             force_refresh=request.force_refresh,
             query_id=query_id
         )
-
-        if result is None:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "error": "analysis_failed",
-                    "message": f"分析股票 {stock_code} 失败"
-                }
+        response_items = [
+            AnalysisResultResponse(
+                query_id=query_id,
+                stock_code=item.get("stock_code"),
+                stock_name=item.get("stock_name"),
+                report=_build_analysis_report(
+                    item.get("report", {}),
+                    query_id,
+                    item.get("stock_code"),
+                    item.get("stock_name"),
+                ).model_dump(),
+                created_at=batch_result.get("created_at", datetime.now().isoformat()),
             )
+            for item in batch_result.get("results", [])
+        ]
 
-        # 构建报告结构
-        report_data = result.get("report", {})
-        report = _build_analysis_report(
-            report_data, query_id, stock_code, result.get("stock_name")
-        )
-
-        return AnalysisResultResponse(
+        return BatchAnalysisResultResponse(
             query_id=query_id,
-            stock_code=result.get("stock_code", stock_code),
-            stock_name=result.get("stock_name"),
-            report=report.model_dump() if report else None,
-            created_at=datetime.now().isoformat()
+            total=batch_result.get("total", len(stock_codes)),
+            success_count=batch_result.get("success_count", len(response_items)),
+            failed_count=batch_result.get("failed_count", 0),
+            results=response_items,
+            failed_stock_codes=batch_result.get("failed_stock_codes", []),
+            created_at=batch_result.get("created_at", datetime.now().isoformat()),
         )
 
     except HTTPException:

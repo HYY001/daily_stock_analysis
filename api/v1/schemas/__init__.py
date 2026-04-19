@@ -17,7 +17,9 @@ from api.v1.schemas.common import (
 from api.v1.schemas.analysis import (
     AnalyzeRequest,
     AnalysisResultResponse,
+    BatchAnalysisResultResponse,
     TaskAccepted,
+    BatchTaskAccepted,
     TaskStatus,
 )
 from api.v1.schemas.history import (
@@ -68,7 +70,9 @@ __all__ = [
     # analysis
     "AnalyzeRequest",
     "AnalysisResultResponse",
+    "BatchAnalysisResultResponse",
     "TaskAccepted",
+    "BatchTaskAccepted",
     "TaskStatus",
     # history
     "HistoryItem",

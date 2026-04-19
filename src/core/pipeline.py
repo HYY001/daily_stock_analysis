@@ -511,6 +511,7 @@ class StockAnalysisPipeline:
         skip_analysis: bool = False,
         single_stock_notify: bool = False,
         report_type: ReportType = ReportType.SIMPLE,
+        force_refresh: bool = False,
         analysis_query_id: Optional[str] = None,
     ) -> Optional[AnalysisResult]:
         """
@@ -538,7 +539,7 @@ class StockAnalysisPipeline:
         
         try:
             # Step 1: 获取并保存数据
-            success, error = self.fetch_and_save_stock_data(code)
+            success, error = self.fetch_and_save_stock_data(code, force_refresh=force_refresh)
             
             if not success:
                 logger.warning(f"[{code}] 数据获取失败: {error}")
@@ -590,7 +591,9 @@ class StockAnalysisPipeline:
         stock_codes: Optional[List[str]] = None,
         dry_run: bool = False,
         send_notification: bool = True,
-        merge_notification: bool = False
+        merge_notification: bool = False,
+        force_refresh: bool = False,
+        report_type_override: Optional[ReportType] = None,
     ) -> List[AnalysisResult]:
         """
         运行完整的分析流程
@@ -635,8 +638,12 @@ class StockAnalysisPipeline:
         # 单股推送模式（#55）：从配置读取
         single_stock_notify = getattr(self.config, 'single_stock_notify', False)
         # Issue #119: 从配置读取报告类型
-        report_type_str = getattr(self.config, 'report_type', 'simple').lower()
-        report_type = ReportType.FULL if report_type_str == 'full' else ReportType.SIMPLE
+        if report_type_override is not None:
+            report_type = report_type_override
+            report_type_str = "full" if report_type == ReportType.FULL else "simple"
+        else:
+            report_type_str = getattr(self.config, 'report_type', 'simple').lower()
+            report_type = ReportType.FULL if report_type_str == 'full' else ReportType.SIMPLE
         # Issue #128: 从配置读取分析间隔
         analysis_delay = getattr(self.config, 'analysis_delay', 0)
 
@@ -656,6 +663,7 @@ class StockAnalysisPipeline:
                     skip_analysis=dry_run,
                     single_stock_notify=single_stock_notify and send_notification,
                     report_type=report_type,  # Issue #119: 传递报告类型
+                    force_refresh=force_refresh,
                     analysis_query_id=uuid.uuid4().hex,
                 ): code
                 for code in stock_codes

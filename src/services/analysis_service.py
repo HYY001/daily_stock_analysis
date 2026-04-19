@@ -12,7 +12,8 @@
 
 import logging
 import uuid
-from typing import Optional, Dict, Any
+from datetime import datetime
+from typing import Optional, Dict, Any, List
 
 from src.repositories.analysis_repo import AnalysisRepository
 
@@ -82,7 +83,8 @@ class AnalysisService:
                 code=stock_code,
                 skip_analysis=False,
                 single_stock_notify=send_notification,
-                report_type=rt
+                report_type=rt,
+                force_refresh=force_refresh,
             )
             
             if result is None:
@@ -95,6 +97,70 @@ class AnalysisService:
         except Exception as e:
             logger.error(f"分析股票 {stock_code} 失败: {e}", exc_info=True)
             return None
+
+    def analyze_stocks(
+        self,
+        stock_codes: List[str],
+        report_type: str = "detailed",
+        force_refresh: bool = False,
+        query_id: Optional[str] = None,
+        send_notification: bool = True
+    ) -> Dict[str, Any]:
+        """
+        批量执行股票分析。
+
+        Args:
+            stock_codes: 股票代码列表
+            report_type: 报告类型 (simple/detailed)
+            force_refresh: 是否强制刷新
+            query_id: 查询 ID（可选）
+            send_notification: 是否发送通知（批量模式下发送汇总通知）
+
+        Returns:
+            批量分析响应字典
+        """
+        from src.config import get_config
+        from src.core.pipeline import StockAnalysisPipeline
+        from src.enums import ReportType
+
+        if query_id is None:
+            query_id = uuid.uuid4().hex
+
+        normalized_codes = list(dict.fromkeys(stock_codes))
+        config = get_config()
+        pipeline = StockAnalysisPipeline(
+            config=config,
+            query_id=query_id,
+            query_source="api"
+        )
+
+        rt = ReportType.FULL if report_type == "detailed" else ReportType.SIMPLE
+        results = pipeline.run(
+            stock_codes=normalized_codes,
+            dry_run=False,
+            send_notification=send_notification,
+            merge_notification=False,
+            force_refresh=force_refresh,
+            report_type_override=rt,
+        )
+
+        response_items = [
+            self._build_analysis_response(result, query_id)
+            for result in results
+        ]
+        success_codes = {item["stock_code"] for item in response_items}
+        failed_codes = [code for code in normalized_codes if code not in success_codes]
+        created_at = datetime.now().isoformat()
+
+        return {
+            "query_id": query_id,
+            "total": len(normalized_codes),
+            "success_count": len(response_items),
+            "failed_count": len(failed_codes),
+            "results": response_items,
+            "failed_stock_codes": failed_codes,
+            "created_at": created_at,
+        }
     
     def _build_analysis_response(
         self, 

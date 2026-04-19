@@ -88,6 +88,46 @@ class AnalysisResultResponse(BaseModel):
         }
 
 
+class BatchAnalysisResultResponse(BaseModel):
+    """批量分析结果响应模型"""
+
+    query_id: str = Field(..., description="本次批量分析的查询 ID")
+    total: int = Field(..., description="请求股票总数")
+    success_count: int = Field(..., description="成功分析数量")
+    failed_count: int = Field(..., description="失败分析数量")
+    results: List[AnalysisResultResponse] = Field(..., description="成功分析结果列表")
+    failed_stock_codes: List[str] = Field(default_factory=list, description="分析失败的股票代码列表")
+    created_at: str = Field(..., description="创建时间")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query_id": "batch_abc123def456",
+                "total": 2,
+                "success_count": 2,
+                "failed_count": 0,
+                "results": [
+                    {
+                        "query_id": "batch_abc123def456",
+                        "stock_code": "600519",
+                        "stock_name": "贵州茅台",
+                        "report": {},
+                        "created_at": "2024-01-01T12:00:00"
+                    },
+                    {
+                        "query_id": "batch_abc123def456",
+                        "stock_code": "000858",
+                        "stock_name": "五粮液",
+                        "report": {},
+                        "created_at": "2024-01-01T12:00:00"
+                    }
+                ],
+                "failed_stock_codes": [],
+                "created_at": "2024-01-01T12:00:00"
+            }
+        }
+
+
 class TaskAccepted(BaseModel):
     """异步任务接受响应"""
     
@@ -105,6 +145,29 @@ class TaskAccepted(BaseModel):
                 "task_id": "task_abc123",
                 "status": "pending",
                 "message": "Analysis task accepted"
+            }
+        }
+
+
+class BatchTaskAccepted(BaseModel):
+    """批量异步任务接受响应"""
+
+    task_ids: List[str] = Field(..., description="任务 ID 列表")
+    stock_codes: List[str] = Field(..., description="已提交的股票代码列表")
+    status: str = Field(
+        ...,
+        description="任务状态",
+        pattern="^(pending|processing)$"
+    )
+    message: Optional[str] = Field(None, description="提示信息")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "task_ids": ["task_abc123", "task_def456"],
+                "stock_codes": ["600519", "000858"],
+                "status": "pending",
+                "message": "2 个分析任务已加入队列"
             }
         }
 
