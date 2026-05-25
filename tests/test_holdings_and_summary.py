@@ -227,12 +227,12 @@ class TestPromptInjection(unittest.TestCase):
 
     def test_format_prompt_with_holding(self):
         try:
-            from src.analyzer import StockAnalyzer
+            from src.analyzer import GeminiAnalyzer
         except Exception as exc:
             self.skipTest(f"analyzer import failed (env deps): {exc}")
             return
 
-        analyzer = StockAnalyzer.__new__(StockAnalyzer)
+        analyzer = GeminiAnalyzer.__new__(GeminiAnalyzer)
         context = {
             'code': '600519',
             'stock_name': '贵州茅台',
@@ -259,11 +259,11 @@ class TestPromptInjection(unittest.TestCase):
 
     def test_format_prompt_without_holding_unchanged(self):
         try:
-            from src.analyzer import StockAnalyzer
+            from src.analyzer import GeminiAnalyzer
         except Exception as exc:
             self.skipTest(f"analyzer import failed (env deps): {exc}")
             return
-        analyzer = StockAnalyzer.__new__(StockAnalyzer)
+        analyzer = GeminiAnalyzer.__new__(GeminiAnalyzer)
         context = {
             'code': '600519',
             'stock_name': '贵州茅台',
