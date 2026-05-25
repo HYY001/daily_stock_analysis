@@ -402,27 +402,36 @@ class StockAnalysisPipeline:
             }
 
         # === B+7: 注入用户持仓信息（成本价、数量），便于 LLM 给出成本感知建议 ===
+        # 同一只股票可能在多个账户持有（不同成本），合并为加权平均成本以供 LLM 参考。
         code = enhanced.get('code')
         holdings = getattr(self.config, 'holdings', None) or []
         if code and holdings:
             try:
                 target_upper = str(code).upper()
-                match = next(
-                    (h for h in holdings if str(h.get('code', '')).upper() == target_upper),
-                    None,
-                )
-                if match:
+                matches = [
+                    h for h in holdings
+                    if str(h.get('code', '')).upper() == target_upper
+                ]
+                if matches:
+                    total_qty = sum(float(m.get('qty', 0)) for m in matches)
+                    total_cost_value = sum(
+                        float(m.get('qty', 0)) * float(m.get('cost_price', 0))
+                        for m in matches
+                    )
+                    weighted_cost = (
+                        total_cost_value / total_qty if total_qty > 0 else 0.0
+                    )
                     current_price = (enhanced.get('realtime') or {}).get('price')
-                    cost_price = float(match['cost_price'])
                     pnl_pct = None
-                    if current_price is not None and cost_price > 0:
-                        pnl_pct = (float(current_price) - cost_price) / cost_price * 100.0
+                    if current_price is not None and weighted_cost > 0:
+                        pnl_pct = (float(current_price) - weighted_cost) / weighted_cost * 100.0
                     enhanced['holding'] = {
-                        'qty': float(match.get('qty', 0)),
-                        'cost_price': cost_price,
-                        'currency': match.get('currency', ''),
-                        'note': match.get('note') or '',
+                        'qty': total_qty,
+                        'cost_price': weighted_cost,
+                        'currency': matches[0].get('currency', ''),
+                        'note': '; '.join(m.get('note') or '' for m in matches if m.get('note')) or '',
                         'pnl_pct': pnl_pct,
+                        'account_count': len(matches),  # B+7: 多账户标记
                     }
             except Exception as e:
                 logger.debug(f"注入 holding 上下文失败（不影响主流程）: {e}")

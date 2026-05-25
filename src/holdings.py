@@ -32,9 +32,16 @@ _DEFAULT_HOLDINGS_PATH = _PROJECT_ROOT / "data" / "holdings.json"
 def infer_currency(code: str) -> str:
     """按股票代码前缀推断货币。
 
-    A股（6/0/3 开头的 6 位数字） -> CNY
-    港股（以 hk 开头，不区分大小写）-> HKD
-    其余视为美股 -> USD
+    A 股 / 中国 ETF / LOF（6 位数字，0/1/3/5/6/8/9 开头）→ CNY
+        - 6xxxxx 上交所 A 股
+        - 0xxxxx 深交所 A 股
+        - 3xxxxx 创业板
+        - 1xxxxx 深交所 ETF / LOF
+        - 5xxxxx 上交所 ETF / LOF
+        - 8xxxxx / 4xxxxx 北交所
+        - 9xxxxx B 股（兼容性）
+    港股（hk 前缀，不区分大小写）→ HKD
+    其余（如 AAPL）→ USD
     """
     if not code:
         return "USD"
@@ -42,7 +49,7 @@ def infer_currency(code: str) -> str:
     cl = c.lower()
     if cl.startswith("hk"):
         return "HKD"
-    if c.isdigit() and len(c) == 6 and c[0] in {"0", "3", "6"}:
+    if c.isdigit() and len(c) == 6 and c[0] in {"0", "1", "3", "5", "6", "8", "9"}:
         return "CNY"
     return "USD"
 

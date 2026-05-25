@@ -1215,6 +1215,12 @@ class GeminiAnalyzer:
                 else:
                     position_status = "🔴 深度浮亏（< -15%），评估是否止损或加仓摊薄"
 
+            account_count = holding.get('account_count', 1)
+            multi_account_hint = (
+                f"（跨 {account_count} 个账户合并，加权成本）"
+                if account_count and account_count > 1
+                else ""
+            )
             prompt += f"""
 ---
 
@@ -1224,7 +1230,7 @@ class GeminiAnalyzer:
 
 | 项目 | 数值 |
 |------|------|
-| 持仓数量 | {qty:g} 股 |
+| 持仓数量 | {qty:g} 股{multi_account_hint} |
 | 成本价 | {currency} {cost_price:.2f} |
 | 当前浮动盈亏 | **{pnl_str}** |
 | 持仓状态 | {position_status} |

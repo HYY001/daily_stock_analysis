@@ -46,6 +46,14 @@ class TestInferCurrency(unittest.TestCase):
         self.assertEqual(infer_currency("TSLA"), "USD")
         self.assertEqual(infer_currency(""), "USD")
 
+    def test_china_etf(self):
+        """A 股 ETF 也应识别为 CNY（1xxxxx 深交所、5xxxxx 上交所）。"""
+        self.assertEqual(infer_currency("159915"), "CNY")  # 创业板ETF易方达
+        self.assertEqual(infer_currency("159819"), "CNY")  # 人工智能ETF易方达
+        self.assertEqual(infer_currency("512400"), "CNY")  # 有色金属ETF南方
+        self.assertEqual(infer_currency("513180"), "CNY")  # 恒生科技ETF华夏
+        self.assertEqual(infer_currency("588200"), "CNY")  # 科创芯片ETF嘉实
+
 
 class TestLoadHoldings(unittest.TestCase):
     def test_load_from_file(self):
@@ -198,6 +206,22 @@ class TestPortfolioSummary(unittest.TestCase):
         # 涨幅榜应包含茅台（+0.42%），跌幅榜应包含 Apple（-0.21%）
         self.assertIn("🟢 涨幅榜", md)
         self.assertIn("🔴 跌幅榜", md)
+
+    def test_b2_top_movers_dedup_by_code(self):
+        """B+2: 同一只股票分散在多账户时，Top 榜按 code 去重。"""
+        holdings = [
+            {"code": "002409", "qty": 800, "cost_price": 95.0, "currency": "CNY", "note": "国金"},
+            {"code": "002409", "qty": 400, "cost_price": 60.0, "currency": "CNY", "note": "银河"},
+            {"code": "000001", "qty": 100, "cost_price": 10.0, "currency": "CNY"},
+        ]
+        results = [
+            FakeResult(code="002409", name="雅克科技", current_price=128.0, change_pct=2.1),
+            FakeResult(code="000001", name="平安银行", current_price=12.0, change_pct=-1.5),
+        ]
+        md = build_portfolio_summary(holdings, results)
+        # 涨幅榜里雅克科技应只出现一次
+        winners_line = next(line for line in md.split('\n') if '🟢 涨幅榜' in line)
+        self.assertEqual(winners_line.count("002409"), 1)
 
     def test_missing_result_shows_dash(self):
         holdings = [{"code": "600519", "qty": 100, "cost_price": 1650.5, "currency": "CNY"}]

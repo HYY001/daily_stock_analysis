@@ -189,8 +189,14 @@ def _build_today_block(agg: Dict[str, Dict[str, Any]], rows: List[_HoldingRow]) 
     if parts:
         lines.append("- 按市值加权今日变动：" + " · ".join(parts))
 
-    # Top movers: 按今日% 排序
-    movers = [r for r in rows if r.change_pct is not None]
+    # Top movers: 按今日% 排序；同一只股票分散在多账户时只算一次（按 code 去重）
+    seen_codes: set = set()
+    movers = []
+    for r in rows:
+        if r.change_pct is None or r.code in seen_codes:
+            continue
+        seen_codes.add(r.code)
+        movers.append(r)
     if movers:
         movers_sorted = sorted(movers, key=lambda x: x.change_pct, reverse=True)
         n_each = min(3, max(1, len(movers_sorted) // 2)) if len(movers_sorted) >= 4 else 1
