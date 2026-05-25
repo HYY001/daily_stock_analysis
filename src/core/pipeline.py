@@ -400,7 +400,33 @@ class StockAnalysisPipeline:
                 'signal_reasons': trend_result.signal_reasons,
                 'risk_factors': trend_result.risk_factors,
             }
-        
+
+        # === B+7: 注入用户持仓信息（成本价、数量），便于 LLM 给出成本感知建议 ===
+        code = enhanced.get('code')
+        holdings = getattr(self.config, 'holdings', None) or []
+        if code and holdings:
+            try:
+                target_upper = str(code).upper()
+                match = next(
+                    (h for h in holdings if str(h.get('code', '')).upper() == target_upper),
+                    None,
+                )
+                if match:
+                    current_price = (enhanced.get('realtime') or {}).get('price')
+                    cost_price = float(match['cost_price'])
+                    pnl_pct = None
+                    if current_price is not None and cost_price > 0:
+                        pnl_pct = (float(current_price) - cost_price) / cost_price * 100.0
+                    enhanced['holding'] = {
+                        'qty': float(match.get('qty', 0)),
+                        'cost_price': cost_price,
+                        'currency': match.get('currency', ''),
+                        'note': match.get('note') or '',
+                        'pnl_pct': pnl_pct,
+                    }
+            except Exception as e:
+                logger.debug(f"注入 holding 上下文失败（不影响主流程）: {e}")
+
         return enhanced
     
     def _describe_volume_ratio(self, volume_ratio: float) -> str:
