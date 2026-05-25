@@ -1957,7 +1957,10 @@ class NotificationService:
             return False
 
     def _send_email_with_inline_image(
-        self, image_bytes: bytes, receivers: Optional[List[str]] = None
+        self,
+        image_bytes: bytes,
+        receivers: Optional[List[str]] = None,
+        content: str = "",
     ) -> bool:
         """Send email with inline image attachment (Issue #289)."""
         if not self._is_email_configured():
@@ -1975,12 +1978,29 @@ class NotificationService:
             )
             msg['To'] = ', '.join(receivers)
 
+            fallback_text = content or '报告已生成，详见下方图片。'
             alt = MIMEMultipart('alternative')
-            alt.attach(MIMEText('报告已生成，详见下方图片。', 'plain', 'utf-8'))
-            html_body = (
+            alt.attach(MIMEText(fallback_text, 'plain', 'utf-8'))
+            image_html = (
                 '<p>报告已生成，详见下方图片（点击可查看大图）：</p>'
                 '<p><img src="cid:report-image" alt="股票分析报告" style="max-width:100%%;" /></p>'
             )
+            if content:
+                html_body = self._markdown_to_html(content).replace(
+                    '<body>',
+                    (
+                        '<body>'
+                        f'{image_html}'
+                        '<hr>'
+                        '<p>如果图片未显示，请查看下面的文字版报告：</p>'
+                    ),
+                    1,
+                )
+            else:
+                html_body = (
+                    '<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
+                    f'<body>{image_html}</body></html>'
+                )
             alt.attach(MIMEText(html_body, 'html', 'utf-8'))
             msg.attach(alt)
 
@@ -3273,7 +3293,7 @@ class NotificationService:
                         receivers = self.get_receivers_for_stocks(email_stock_codes)
                     if use_image:
                         result = self._send_email_with_inline_image(
-                            image_bytes, receivers=receivers
+                            image_bytes, receivers=receivers, content=content
                         )
                     else:
                         result = self.send_to_email(content, receivers=receivers)
