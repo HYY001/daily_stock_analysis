@@ -47,7 +47,8 @@ env/
 .cursorrules
 
 # 数据和日志
-data/
+data/*
+!data/holdings.json.example
 logs/
 reports/
 *.db

@@ -400,7 +400,42 @@ class StockAnalysisPipeline:
                 'signal_reasons': trend_result.signal_reasons,
                 'risk_factors': trend_result.risk_factors,
             }
-        
+
+        # === B+7: 注入用户持仓信息（成本价、数量），便于 LLM 给出成本感知建议 ===
+        # 同一只股票可能在多个账户持有（不同成本），合并为加权平均成本以供 LLM 参考。
+        code = enhanced.get('code')
+        holdings = getattr(self.config, 'holdings', None) or []
+        if code and holdings:
+            try:
+                target_upper = str(code).upper()
+                matches = [
+                    h for h in holdings
+                    if str(h.get('code', '')).upper() == target_upper
+                ]
+                if matches:
+                    total_qty = sum(float(m.get('qty', 0)) for m in matches)
+                    total_cost_value = sum(
+                        float(m.get('qty', 0)) * float(m.get('cost_price', 0))
+                        for m in matches
+                    )
+                    weighted_cost = (
+                        total_cost_value / total_qty if total_qty > 0 else 0.0
+                    )
+                    current_price = (enhanced.get('realtime') or {}).get('price')
+                    pnl_pct = None
+                    if current_price is not None and weighted_cost > 0:
+                        pnl_pct = (float(current_price) - weighted_cost) / weighted_cost * 100.0
+                    enhanced['holding'] = {
+                        'qty': total_qty,
+                        'cost_price': weighted_cost,
+                        'currency': matches[0].get('currency', ''),
+                        'note': '; '.join(m.get('note') or '' for m in matches if m.get('note')) or '',
+                        'pnl_pct': pnl_pct,
+                        'account_count': len(matches),  # B+7: 多账户标记
+                    }
+            except Exception as e:
+                logger.debug(f"注入 holding 上下文失败（不影响主流程）: {e}")
+
         return enhanced
     
     def _describe_volume_ratio(self, volume_ratio: float) -> str:
@@ -727,10 +762,35 @@ class StockAnalysisPipeline:
         """
         try:
             logger.info("生成决策仪表盘日报...")
-            
+
             # 生成决策仪表盘格式的详细日报
             report = self.notifier.generate_dashboard_report(results)
-            
+
+            # === B 方案：持仓组合摘要 ===
+            # 若配置了 holdings（data/holdings.json 或 HOLDINGS_JSON 环境变量），
+            # 在仪表盘报告前注入「持仓概览」段落。
+            holdings = getattr(self.config, 'holdings', None) or []
+            if holdings:
+                try:
+                    from datetime import datetime as _dt
+                    from src.portfolio_summary import build_portfolio_summary
+                    summary_md = build_portfolio_summary(
+                        holdings,
+                        results,
+                        date_str=_dt.now().strftime('%Y-%m-%d'),
+                    )
+                    if summary_md:
+                        # 将持仓摘要放在标题之后、个股详情之前
+                        # report 第一行是 "# 🎯 YYYY-MM-DD 决策仪表盘"
+                        parts = report.split('\n', 1)
+                        if len(parts) == 2 and parts[0].startswith('#'):
+                            report = parts[0] + '\n\n' + summary_md + parts[1]
+                        else:
+                            report = summary_md + '\n' + report
+                        logger.info(f"已在报告中注入 {len(holdings)} 条持仓的组合摘要")
+                except Exception as e:
+                    logger.warning(f"生成持仓摘要失败（不影响主流程）: {e}")
+
             # 保存到本地
             filepath = self.notifier.save_report_to_file(report)
             logger.info(f"决策仪表盘日报已保存: {filepath}")

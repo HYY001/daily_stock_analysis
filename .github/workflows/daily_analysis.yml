@@ -50,7 +50,19 @@ jobs:
       - name: 创建必要目录
         run: |
           mkdir -p data logs reports
-      
+
+      - name: 写入持仓文件（如配置了 HOLDINGS_JSON secret）
+        env:
+          HOLDINGS_JSON: ${{ secrets.HOLDINGS_JSON }}
+        run: |
+          if [ -n "$HOLDINGS_JSON" ]; then
+            printf '%s' "$HOLDINGS_JSON" > data/holdings.json
+            echo "✅ data/holdings.json 已写入（$(wc -c < data/holdings.json) 字节）"
+          else
+            echo "⚪ 未配置 HOLDINGS_JSON secret，跳过持仓摘要（A 方案行为）"
+          fi
+
+
       - name: 执行股票分析
         env:
           # ==========================================

@@ -1194,6 +1194,54 @@ class GeminiAnalyzer:
 | 均线形态 | {context.get('ma_status', '未知')} | 多头/空头/缠绕 |
 """
         
+        # === B+7: 用户持仓上下文（成本感知分析）===
+        holding = context.get('holding')
+        if holding:
+            cost_price = holding.get('cost_price')
+            qty = holding.get('qty')
+            pnl_pct = holding.get('pnl_pct')
+            currency = holding.get('currency') or ''
+            pnl_str = "数据缺失" if pnl_pct is None else f"{pnl_pct:+.2f}%"
+            position_status = "未知"
+            if pnl_pct is not None:
+                if pnl_pct >= 20:
+                    position_status = "🟢 大幅盈利（>20%），考虑分批止盈"
+                elif pnl_pct >= 5:
+                    position_status = "🟢 盈利中（5%-20%）"
+                elif pnl_pct >= -5:
+                    position_status = "⚪ 微利/微亏（-5% ~ +5%），盈亏平衡区"
+                elif pnl_pct >= -15:
+                    position_status = "🔴 浮亏（-5% ~ -15%），关注止损"
+                else:
+                    position_status = "🔴 深度浮亏（< -15%），评估是否止损或加仓摊薄"
+
+            account_count = holding.get('account_count', 1)
+            multi_account_hint = (
+                f"（跨 {account_count} 个账户合并，加权成本）"
+                if account_count and account_count > 1
+                else ""
+            )
+            prompt += f"""
+---
+
+## 📌 用户持仓状态（成本感知分析）
+
+> ⚠️ **重要：本次分析必须结合用户的实际持仓成本，给出有针对性的操作建议（持有/加仓/减仓/止盈/止损），而不是泛泛的看多看空。**
+
+| 项目 | 数值 |
+|------|------|
+| 持仓数量 | {qty:g} 股{multi_account_hint} |
+| 成本价 | {currency} {cost_price:.2f} |
+| 当前浮动盈亏 | **{pnl_str}** |
+| 持仓状态 | {position_status} |
+
+**生成建议时请显式考虑：**
+1. 若现价高于成本（盈利状态）：评估是否到达止盈位、是否应分批止盈或继续持有
+2. 若现价低于成本（浮亏状态）：评估是否有反转信号（可加仓摊薄）、还是应止损出局
+3. 在「操作建议」中明确指明针对**当前持仓者**的动作（不是新入场者）
+4. 在「风险提示」中标注若继续持有的下行风险点位
+"""
+
         # 添加实时行情数据（量比、换手率等）
         if 'realtime' in context:
             rt = context['realtime']
