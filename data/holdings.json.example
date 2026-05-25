@@ -1,0 +1,17 @@
+{
+  "_comment": "复制此文件为 data/holdings.json 后填入真实持仓。该文件已被 .gitignore 排除。字段说明：code=股票代码（A股 6/0/3 开头，港股 hkXXXXX，美股直接代码），qty=持仓数量（股），cost_price=平均成本价，note 可选。",
+  "holdings": [
+    {
+      "code": "600519",
+      "qty": 100,
+      "cost_price": 1650.50,
+      "note": "贵州茅台"
+    },
+    {
+      "code": "AAPL",
+      "qty": 50,
+      "cost_price": 180.20,
+      "note": "Apple"
+    }
+  ]
+}

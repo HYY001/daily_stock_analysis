@@ -727,10 +727,35 @@ class StockAnalysisPipeline:
         """
         try:
             logger.info("生成决策仪表盘日报...")
-            
+
             # 生成决策仪表盘格式的详细日报
             report = self.notifier.generate_dashboard_report(results)
-            
+
+            # === B 方案：持仓组合摘要 ===
+            # 若配置了 holdings（data/holdings.json 或 HOLDINGS_JSON 环境变量），
+            # 在仪表盘报告前注入「持仓概览」段落。
+            holdings = getattr(self.config, 'holdings', None) or []
+            if holdings:
+                try:
+                    from datetime import datetime as _dt
+                    from src.portfolio_summary import build_portfolio_summary
+                    summary_md = build_portfolio_summary(
+                        holdings,
+                        results,
+                        date_str=_dt.now().strftime('%Y-%m-%d'),
+                    )
+                    if summary_md:
+                        # 将持仓摘要放在标题之后、个股详情之前
+                        # report 第一行是 "# 🎯 YYYY-MM-DD 决策仪表盘"
+                        parts = report.split('\n', 1)
+                        if len(parts) == 2 and parts[0].startswith('#'):
+                            report = parts[0] + '\n\n' + summary_md + parts[1]
+                        else:
+                            report = summary_md + '\n' + report
+                        logger.info(f"已在报告中注入 {len(holdings)} 条持仓的组合摘要")
+                except Exception as e:
+                    logger.warning(f"生成持仓摘要失败（不影响主流程）: {e}")
+
             # 保存到本地
             filepath = self.notifier.save_report_to_file(report)
             logger.info(f"决策仪表盘日报已保存: {filepath}")

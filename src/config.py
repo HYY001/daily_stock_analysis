@@ -13,7 +13,7 @@ A股自选股智能分析系统 - 配置管理模块
 import os
 import re
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from dotenv import load_dotenv, dotenv_values
 from dataclasses import dataclass, field
 
@@ -50,6 +50,11 @@ class Config:
     
     # === 自选股配置 ===
     stock_list: List[str] = field(default_factory=list)
+
+    # === 持仓配置（B 方案）===
+    # 由 src/holdings.py 加载，每条包含 code/qty/cost_price/note/currency
+    # 若非空，会作为 stock_list 的兜底来源（用户未配置 STOCK_LIST 时）
+    holdings: List[Dict[str, Any]] = field(default_factory=list)
 
     # === 飞书云文档配置 ===
     feishu_app_id: Optional[str] = None
@@ -338,12 +343,18 @@ class Config:
         # 解析自选股列表（逗号分隔）
         stock_list_str = os.getenv('STOCK_LIST', '')
         stock_list = [
-            code.strip() 
-            for code in stock_list_str.split(',') 
+            code.strip()
+            for code in stock_list_str.split(',')
             if code.strip()
         ]
-        
-        # 如果没有配置，使用默认的示例股票
+
+        # 加载持仓（B 方案）：若 STOCK_LIST 未配置，用 holdings 的代码兜底
+        from src.holdings import load_holdings, holdings_to_codes
+        holdings = load_holdings()
+        if not stock_list and holdings:
+            stock_list = holdings_to_codes(holdings)
+
+        # 如果仍然为空，使用默认的示例股票
         if not stock_list:
             stock_list = ['600519', '000001', '300750']
         
@@ -372,6 +383,7 @@ class Config:
         
         return cls(
             stock_list=stock_list,
+            holdings=holdings,
             feishu_app_id=os.getenv('FEISHU_APP_ID'),
             feishu_app_secret=os.getenv('FEISHU_APP_SECRET'),
             feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),
@@ -582,7 +594,13 @@ class Config:
             if code.strip()
         ]
 
-        if not stock_list:        
+        # 持仓热加载（B 方案）：每次刷新都重读 holdings.json
+        from src.holdings import load_holdings, holdings_to_codes
+        self.holdings = load_holdings()
+        if not stock_list and self.holdings:
+            stock_list = holdings_to_codes(self.holdings)
+
+        if not stock_list:
             stock_list = ['000001']
 
         self.stock_list = stock_list
